@@ -141,7 +141,13 @@
             y: canvas.height - 50,
             width: 30 * scale,
             height: 30 * scale,
-            speed: 4 * scale,
+            // speed: 4 * scale, // 「acceleration」に変更
+            acceleration: 0.5 * scale, // キーボード操作時の加速度
+            vx: 0, // X方向の速度
+            vy: 0, // Y方向の速度
+            friction: 0.2, // 摩擦 (1に近いほど滑りにくく、0に近いほど滑る)
+            maxSpeed: 18 * scale, // 最大速度
+            touchEasingFactor: 0.15, // タッチ追従のスムーズさ (0に近いほど滑らか, 1で即時)
             shootCooldown: 5, // 5フレームごとに発射
             shootTimer: 0,
             color: '#00ffff', // シアン
@@ -341,23 +347,75 @@
             }
 
 
-            // キーボード操作
-            if (keys['ArrowLeft'] || keys['a']) player.x -= player.speed;
-            if (keys['ArrowRight'] || keys['d']) player.x += player.speed;
-            if (keys['ArrowUp'] || keys['w']) player.y -= player.speed;
-            if (keys['ArrowDown'] || keys['s']) player.y += player.speed;
+            // --- 操作による力の適用 ---
 
-            // タッチ操作 (相対移動)
             if (isTouching && touchMoveX !== null && touchMoveY !== null) {
-                player.x = touchMoveX;
-                // ユーザーのフィードバックに基づき、指で自機が隠れないようY座標をオフセット
+                // タッチ操作時 (慣性あり)
                 const touchOffsetY = 80 * scale; 
-                player.y = touchMoveY - touchOffsetY;
+                const targetX = touchMoveX;
+                const targetY = touchMoveY - touchOffsetY;
+
+                // 目標地点との差を計算
+                const dx = targetX - player.x;
+                const dy = targetY - player.y;
+
+                // 差分に比例した力を加える (イージング)
+                player.vx += dx * player.touchEasingFactor;
+                player.vy += dy * player.touchEasingFactor;
+                
+            } else {
+                // キーボード操作時 (慣性あり)
+                let ax = 0;
+                let ay = 0;
+                if (keys['ArrowLeft'] || keys['a']) ax -= player.acceleration;
+                if (keys['ArrowRight'] || keys['d']) ax += player.acceleration;
+                if (keys['ArrowUp'] || keys['w']) ay -= player.acceleration;
+                if (keys['ArrowDown'] || keys['s']) ay += player.acceleration;
+                
+                player.vx += ax;
+                player.vy += ay;
             }
 
-            // 画面外に出ないように
-            player.x = Math.max(player.width / 2, Math.min(canvas.width - player.width / 2, player.x));
-            player.y = Math.max(player.height / 2, Math.min(canvas.height - player.height / 2, player.y));
+            // --- 物理演算 ---
+
+            // 最大速度の制限
+            const currentSpeed = Math.hypot(player.vx, player.vy);
+            if (currentSpeed > player.maxSpeed) {
+                const ratio = player.maxSpeed / currentSpeed;
+                player.vx *= ratio;
+                player.vy *= ratio;
+            }
+
+                        // 摩擦の適用
+            player.vx *= player.friction;
+            player.vy *= player.friction;
+
+
+            // 速度が非常に小さくなったら停止 (ガクガク防止)
+            if (Math.abs(player.vx) < 0.1) player.vx = 0;
+            if (Math.abs(player.vy) < 0.1) player.vy = 0;
+
+            // 座標の更新
+            player.x += player.vx;
+            player.y += player.vy;
+
+
+            // 画面外に出ないように (壁で速度を0にする)
+            if (player.x < player.width / 2) {
+                player.x = player.width / 2;
+                player.vx = 0; // 壁に当たったら速度リセット
+            } else if (player.x > canvas.width - player.width / 2) {
+                player.x = canvas.width - player.width / 2;
+                player.vx = 0;
+            }
+            if (player.y < player.height / 2) {
+                player.y = player.height / 2;
+                player.vy = 0;
+            } else if (player.y > canvas.height - player.height / 2) {
+                player.y = canvas.height - player.height / 2;
+                player.vy = 0;
+            }
+
 
             // 自動射撃 (ShiftキーまたはZキー、またはタッチ中)
             if ((keys['Shift'] || keys['z'] || isTouching) && player.shootTimer === 0) {
